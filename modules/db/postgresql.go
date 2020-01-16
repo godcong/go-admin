@@ -7,28 +7,22 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"github.com/GoAdminGroup/go-admin/modules/config"
 	"strconv"
 	"strings"
-	"sync"
-
-	"github.com/GoAdminGroup/go-admin/modules/config"
 )
 
-// Postgresql is a Connection of mssql.
+// Postgresql is a Connection of postgresql.
 type Postgresql struct {
-	DbList map[string]*sql.DB
-	Once   sync.Once
+	Base
 }
 
-// PostgresqlDB is a global variable which handles the postgresql connection.
-var PostgresqlDB = Postgresql{
-	DbList: map[string]*sql.DB{},
-}
-
-// GetPostgresqlDB return the global mssql connection.
+// GetPostgresqlDB return the global postgresql connection.
 func GetPostgresqlDB() *Postgresql {
 	return &Postgresql{
-		DbList: map[string]*sql.DB{},
+		Base: Base{
+			DbList: make(map[string]*sql.DB),
+		},
 	}
 }
 

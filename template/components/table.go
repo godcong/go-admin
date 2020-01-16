@@ -16,6 +16,7 @@ type TableAttribute struct {
 	EditUrl    string
 	MinWidth   int
 	DeleteUrl  string
+	DetailUrl  string
 	UpdateUrl  string
 	IsTab      bool
 	ExportUrl  string
@@ -51,20 +52,22 @@ func (compo *TableAttribute) GetContent() template.HTML {
 
 type DataTableAttribute struct {
 	TableAttribute
-	EditUrl          string
-	NewUrl           string
-	UpdateUrl        string
-	DeleteUrl        string
-	PrimaryKey       string
-	IsTab            bool
-	ExportUrl        string
-	InfoUrl          string
-	Buttons          template.HTML
-	ActionJs         template.JS
-	IsHideFilterArea bool
-	NoAction         bool
-	HasFilter        bool
-	Action           template.HTML
+	EditUrl           string
+	NewUrl            string
+	UpdateUrl         string
+	DetailUrl         string
+	DeleteUrl         string
+	PrimaryKey        string
+	IsTab             bool
+	ExportUrl         string
+	InfoUrl           string
+	Buttons           template.HTML
+	ActionJs          template.JS
+	IsHideFilterArea  bool
+	IsHideRowSelector bool
+	NoAction          bool
+	HasFilter         bool
+	Action            template.HTML
 	types.Attribute
 }
 
@@ -117,8 +120,18 @@ func (compo *DataTableAttribute) SetExportUrl(value string) types.DataTableAttri
 	return compo
 }
 
+func (compo *DataTableAttribute) SetHideRowSelector(value bool) types.DataTableAttribute {
+	compo.IsHideRowSelector = value
+	return compo
+}
+
 func (compo *DataTableAttribute) SetUpdateUrl(value string) types.DataTableAttribute {
 	compo.UpdateUrl = value
+	return compo
+}
+
+func (compo *DataTableAttribute) SetDetailUrl(value string) types.DataTableAttribute {
+	compo.DetailUrl = value
 	return compo
 }
 

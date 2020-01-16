@@ -56,7 +56,7 @@ func showNewForm(ctx *context.Context, alert template2.HTML, prefix string, url,
 			SetFooter(panel.GetForm().FooterHtml)),
 		Description: panel.GetForm().Description,
 		Title:       panel.GetForm().Title,
-	}, config, menu.GetGlobalMenu(user).SetActiveClass(config.URLRemovePrefix(ctx.Path())))
+	}, config, menu.GetGlobalMenu(user, conn).SetActiveClass(config.URLRemovePrefix(ctx.Path())))
 	ctx.HTML(http.StatusOK, buf.String())
 
 	if newUrl != "" {
@@ -109,8 +109,10 @@ func NewForm(ctx *context.Context) {
 	newUrl := modules.AorB(param.Panel.GetCanAdd(), param.GetNewUrl(), "")
 	infoUrl := param.GetInfoUrl()
 	updateUrl := modules.AorB(param.Panel.GetEditable(), param.GetUpdateUrl(), "")
+	detailUrl := param.GetDetailUrl()
 
-	buf := showTable(ctx, param.Panel, param.Path, param.Param, exportUrl, newUrl, deleteUrl, infoUrl, editUrl, updateUrl)
+	buf := showTable(ctx, param.Panel, param.Path, param.Param, exportUrl, newUrl, deleteUrl,
+		infoUrl, editUrl, updateUrl, detailUrl)
 
 	ctx.HTML(http.StatusOK, buf.String())
 	ctx.AddHeader(constant.PjaxUrlHeader, param.GetInfoUrl())

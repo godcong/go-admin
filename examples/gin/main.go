@@ -16,6 +16,10 @@ import (
 	"github.com/GoAdminGroup/themes/adminlte"
 	"github.com/gin-gonic/gin"
 	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
 )
 
 func main() {
@@ -97,5 +101,20 @@ func main() {
 		})
 	})
 
-	_ = r.Run(":9033")
+	r.POST("/admin/popup", func(ctx *gin.Context) {
+		ctx.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"data": "<h2>hello world</h2>",
+		})
+	})
+
+	go func() {
+		_ = r.Run(":9033")
+	}()
+
+	quit := make(chan os.Signal)
+	signal.Notify(quit, os.Interrupt)
+	<-quit
+	log.Print("closing database connection")
+	eng.MysqlConnection().Close()
 }

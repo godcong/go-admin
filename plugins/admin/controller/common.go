@@ -4,6 +4,7 @@ import (
 	"github.com/GoAdminGroup/go-admin/context"
 	"github.com/GoAdminGroup/go-admin/modules/auth"
 	c "github.com/GoAdminGroup/go-admin/modules/config"
+	"github.com/GoAdminGroup/go-admin/modules/db"
 	"github.com/GoAdminGroup/go-admin/modules/language"
 	"github.com/GoAdminGroup/go-admin/modules/service"
 	"github.com/GoAdminGroup/go-admin/plugins/admin/modules/constant"
@@ -16,6 +17,7 @@ var (
 	config        c.Config
 	captchaConfig map[string]string
 	services      service.List
+	conn          db.Connection
 )
 
 // SetConfig set the config.
@@ -31,6 +33,7 @@ func SetConfig(cfg c.Config) {
 // SetServices set the services.
 func SetServices(l service.List) {
 	services = l
+	conn = db.GetConnection(services)
 }
 
 func authSrv() *auth.Service {
@@ -129,9 +132,18 @@ func formContent(form types.FormAttribute) template2.HTML {
 		GetContent()
 }
 
+func detailContent(form types.FormAttribute, editUrl, deleteUrl string) template2.HTML {
+	return aBox().
+		SetHeader(form.GetDetailBoxHeader(editUrl, deleteUrl)).
+		WithHeadBorder().
+		SetBody(form.GetContent()).
+		GetContent()
+}
+
 func menuFormContent(form types.FormAttribute) template2.HTML {
 	return aBox().
 		SetHeader(form.GetBoxHeaderNoButton()).
+		SetStyle(" ").
 		WithHeadBorder().
 		SetBody(form.GetContent()).
 		GetContent()

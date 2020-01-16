@@ -26,6 +26,7 @@ type FormAttribute interface {
 	SetToken(value string) FormAttribute
 	SetOperationFooter(value template.HTML) FormAttribute
 	GetBoxHeader() template.HTML
+	GetDetailBoxHeader(editUrl, deleteUrl string) template.HTML
 	GetBoxHeaderNoButton() template.HTML
 	GetContent() template.HTML
 }
@@ -37,6 +38,7 @@ type BoxAttribute interface {
 	SetFooter(value template.HTML) BoxAttribute
 	SetTitle(value template.HTML) BoxAttribute
 	WithHeadBorder() BoxAttribute
+	SetStyle(value template.HTMLAttr) BoxAttribute
 	SetHeadColor(value string) BoxAttribute
 	SetTheme(value string) BoxAttribute
 	SetSecondHeader(value template.HTML) BoxAttribute
@@ -112,8 +114,10 @@ type DataTableAttribute interface {
 	SetIsTab(value bool) DataTableAttribute
 	SetButtons(btns template.HTML) DataTableAttribute
 	SetHideFilterArea(value bool) DataTableAttribute
+	SetHideRowSelector(value bool) DataTableAttribute
 	SetActionJs(aj template.JS) DataTableAttribute
 	SetInfoUrl(value string) DataTableAttribute
+	SetDetailUrl(value string) DataTableAttribute
 	SetHasFilter(hasFilter bool) DataTableAttribute
 	SetExportUrl(value string) DataTableAttribute
 	SetUpdateUrl(value string) DataTableAttribute
@@ -142,6 +146,7 @@ type PaginatorAttribute interface {
 	SetNextUrl(value string) PaginatorAttribute
 	SetOption(value map[string]template.HTML) PaginatorAttribute
 	SetUrl(value string) PaginatorAttribute
+	SetExtraInfo(value template.HTML) PaginatorAttribute
 	GetContent() template.HTML
 }
 

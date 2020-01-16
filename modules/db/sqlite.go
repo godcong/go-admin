@@ -7,24 +7,19 @@ package db
 import (
 	"database/sql"
 	"github.com/GoAdminGroup/go-admin/modules/config"
-	"sync"
 )
 
-// Sqlite is a Connection of mssql.
+// Sqlite is a Connection of sqlite.
 type Sqlite struct {
-	DbList map[string]*sql.DB
-	Once   sync.Once
+	Base
 }
 
-// DB is a global variable which handles the sqlite connection.
-var DB = Sqlite{
-	DbList: map[string]*sql.DB{},
-}
-
-// GetSqliteDB return the global mssql connection.
+// GetSqliteDB return the global sqlite connection.
 func GetSqliteDB() *Sqlite {
 	return &Sqlite{
-		DbList: map[string]*sql.DB{},
+		Base: Base{
+			DbList: make(map[string]*sql.DB),
+		},
 	}
 }
 

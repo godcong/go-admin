@@ -5,8 +5,10 @@
 package dialect
 
 import (
-	"github.com/GoAdminGroup/go-admin/modules/config"
+	"fmt"
 	"strings"
+
+	"github.com/GoAdminGroup/go-admin/modules/config"
 )
 
 // Dialect is methods set of different driver.
@@ -50,7 +52,7 @@ func GetDialectByDriver(driver string) Dialect {
 		}
 	case "mssql":
 		return mssql{
-			commonDialect: commonDialect{delimiter: "`"},
+			commonDialect: commonDialect{delimiter: "["},
 		}
 	case "postgresql":
 		return postgresql{
@@ -81,6 +83,7 @@ type SQLComponent struct {
 	Limit      string
 	WhereRaws  string
 	UpdateRaws []RawUpdate
+	Group      string
 	Statement  string
 	Values     H
 }
@@ -131,6 +134,13 @@ func (sql *SQLComponent) getOrderBy() string {
 	return " order by " + sql.Order + " "
 }
 
+func (sql *SQLComponent) getGroupBy() string {
+	if sql.Group == "" {
+		return ""
+	}
+	return " group by " + sql.Group + " "
+}
+
 func (sql *SQLComponent) getJoins(delimiter string) string {
 	if len(sql.Leftjoins) == 0 {
 		return ""
@@ -171,6 +181,9 @@ func (sql *SQLComponent) getFields(delimiter string) string {
 func wrap(delimiter, field string) string {
 	if field == "*" {
 		return "*"
+	}
+	if delimiter == "[" {
+		return fmt.Sprintf("[%s]", field)
 	}
 	return delimiter + field + delimiter
 }

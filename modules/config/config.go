@@ -226,7 +226,10 @@ func (c Config) URLRemovePrefix(url string) string {
 	if url == c.prefix {
 		return "/"
 	}
-	return strings.Replace(url, c.Prefix(), "", 1)
+	if c.prefix == "/" {
+		return url
+	}
+	return strings.Replace(url, c.prefix, "", 1)
 }
 
 // Index return the index url without prefix.
@@ -242,6 +245,14 @@ func (c Config) Index() string {
 
 // Prefix return the prefix.
 func (c Config) Prefix() string {
+	return c.prefix
+}
+
+// AssertPrefix return the prefix of assert.
+func (c Config) AssertPrefix() string {
+	if c.prefix == "/" {
+		return ""
+	}
 	return c.prefix
 }
 

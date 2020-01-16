@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/GoAdminGroup/go-admin/plugins/admin/modules"
-	"github.com/go-ini/ini"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -16,7 +14,9 @@ import (
 	"github.com/AlecAivazis/survey/v2/core"
 	"github.com/GoAdminGroup/go-admin/modules/config"
 	"github.com/GoAdminGroup/go-admin/modules/db"
+	"github.com/GoAdminGroup/go-admin/plugins/admin/modules"
 	"github.com/GoAdminGroup/go-admin/template/types/form"
+	"github.com/go-ini/ini"
 	"github.com/mgutz/ansi"
 	"github.com/schollz/progressbar"
 )
@@ -77,7 +77,8 @@ func generating(cfgFile string) {
 
 	}
 
-	survey.SelectQuestionTemplate = strings.Replace(survey.SelectQuestionTemplate, "space to select", "<enter> to select", -1)
+	survey.SelectQuestionTemplate = strings.Replace(survey.SelectQuestionTemplate, "type to filter", "type to filter, enter to select", -1)
+	survey.MultiSelectQuestionTemplate = strings.Replace(survey.MultiSelectQuestionTemplate, "enter to select", "space to select", -1)
 
 	if driverName == "" {
 		var qs = []*survey.Question{
@@ -85,7 +86,7 @@ func generating(cfgFile string) {
 				Name: "driver",
 				Prompt: &survey.Select{
 					Message: "choose a driver",
-					Options: []string{"mysql", "postgresql", "sqlite"},
+					Options: []string{"mysql", "postgresql", "sqlite", "mssql"},
 					Default: "mysql",
 				},
 			},
@@ -111,6 +112,11 @@ func generating(cfgFile string) {
 		if driverName == "postgresql" {
 			defaultPort = "5432"
 			defaultUser = "postgres"
+		}
+
+		if driverName == "mssql" {
+			defaultPort = "1433"
+			defaultUser = "sa"
 		}
 
 		if host == "" {
@@ -223,6 +229,10 @@ see: http://www.go-admin.cn/en/docs/#/plugins/admin`)
 		fieldField = "name"
 		typeField = "type"
 	}
+	if driverName == "mssql" {
+		fieldField = "column_name"
+		typeField = "data_type"
+	}
 
 	bar := progressbar.New(len(chooseTables))
 	for i := 0; i < len(chooseTables); i++ {
@@ -278,6 +288,8 @@ func getTablesFromSQLResult(models []map[string]interface{}, driver string, dbNa
 	key := "Tables_in_" + dbName
 	if driver == "postgresql" || driver == "sqlite" {
 		key = "tablename"
+	} else if driver == "mssql" {
+		key = "TABLE_NAME"
 	} else {
 		if _, ok := models[0][key].(string); !ok {
 			key = "Tables_in_" + strings.ToLower(dbName)
@@ -395,11 +407,11 @@ import (
 	"github.com/GoAdminGroup/go-admin/template/types/form"
 )
 
-func Get` + strings.Title(tableCamel) + `TableName() table.Table {
+func Get` + strings.Title(tableCamel) + `Table() table.Table {
 
-    ` + tableCamel + `TableName := ` + newTable + `
+    ` + tableCamel + `Table := ` + newTable + `
 
-	info := ` + tableCamel + `TableName.GetInfo()
+	info := ` + tableCamel + `Table.GetInfo()
 	
 	`
 
@@ -420,7 +432,7 @@ func Get` + strings.Title(tableCamel) + `TableName() table.Table {
 	content += `
 	info.SetTable("` + table + `").SetTitle("` + strings.Title(table) + `").SetDescription("` + strings.Title(table) + `")
 
-	formList := ` + tableCamel + `TableName.GetForm()
+	formList := ` + tableCamel + `Table.GetForm()
 	
 	`
 
@@ -443,7 +455,7 @@ func Get` + strings.Title(tableCamel) + `TableName() table.Table {
 	content += `
 	formList.SetTable("` + table + `").SetTitle("` + strings.Title(table) + `").SetDescription("` + strings.Title(table) + `")
 
-	return ` + tableCamel + `TableName
+	return ` + tableCamel + `Table
 }`
 
 	err := ioutil.WriteFile(outputPath+"/"+table+".go", []byte(content), 0644)
@@ -457,7 +469,7 @@ func generateTables(outputPath string, tables []string, packageName string) {
 
 	for i := 0; i < len(tables); i++ {
 		tableStr += `
-	"` + tables[i] + `": Get` + strings.Title(camelcase(tables[i])) + `TableName,`
+	"` + tables[i] + `": Get` + strings.Title(camelcase(tables[i])) + `Table,`
 		commentStr += `// "` + tables[i] + `" => http://localhost:9033/admin/info/` + tables[i] + `
 `
 	}
@@ -467,7 +479,7 @@ func generateTables(outputPath string, tables []string, packageName string) {
 import "github.com/GoAdminGroup/go-admin/plugins/admin/modules/table"
 
 // The key of Generators is the prefix of table info url.
-// The corresponding value is the Form and TableName data.
+// The corresponding value is the Form and Table data.
 //
 // http://{{config.Domain}}:{{Port}}/{{config.Prefix}}/info/{{key}}
 //

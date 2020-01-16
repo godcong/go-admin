@@ -13,6 +13,7 @@ import (
 	"github.com/GoAdminGroup/go-admin/plugins/admin/modules/table"
 	"github.com/GoAdminGroup/go-admin/template"
 	"github.com/GoAdminGroup/go-admin/template/types"
+	"github.com/GoAdminGroup/go-admin/template/types/form"
 	template2 "html/template"
 	"net/http"
 )
@@ -61,7 +62,7 @@ func showForm(ctx *context.Context, alert template2.HTML, prefix string, id stri
 			SetFooter(panel.GetForm().FooterHtml)),
 		Description: description,
 		Title:       title,
-	}, config, menu.GetGlobalMenu(user).SetActiveClass(config.URLRemovePrefix(ctx.Path())))
+	}, config, menu.GetGlobalMenu(user, conn).SetActiveClass(config.URLRemovePrefix(ctx.Path())))
 
 	ctx.HTML(http.StatusOK, buf.String())
 
@@ -92,6 +93,14 @@ func EditForm(ctx *context.Context) {
 		}
 	}
 
+	for _, field := range param.Panel.GetForm().FieldList {
+		if field.FormType == form.File &&
+			len(param.MultiForm.File[field.Field]) == 0 &&
+			param.MultiForm.Value[field.Field+"__delete_flag"][0] != "1" {
+			delete(param.MultiForm.Value, field.Field)
+		}
+	}
+
 	err := param.Panel.UpdateDataFromDatabase(param.Value())
 	if err != nil {
 		alert := aAlert().SetTitle(template2.HTML(`<i class="icon fa fa-warning"></i> ` + language.Get("error") + `!`)).
@@ -114,8 +123,10 @@ func EditForm(ctx *context.Context) {
 	newUrl := modules.AorB(param.Panel.GetCanAdd(), param.GetNewUrl(), "")
 	infoUrl := param.GetInfoUrl()
 	updateUrl := modules.AorB(param.Panel.GetEditable(), param.GetUpdateUrl(), "")
+	detailUrl := param.GetDetailUrl()
 
-	buf := showTable(ctx, param.Panel, param.Path, param.Param, exportUrl, newUrl, deleteUrl, infoUrl, editUrl, updateUrl)
+	buf := showTable(ctx, param.Panel, param.Path, param.Param, exportUrl, newUrl,
+		deleteUrl, infoUrl, editUrl, updateUrl, detailUrl)
 
 	ctx.HTML(http.StatusOK, buf.String())
 	ctx.AddHeader(constant.PjaxUrlHeader, param.PreviousPath)

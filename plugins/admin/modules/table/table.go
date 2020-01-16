@@ -3,19 +3,22 @@ package table
 import (
 	"errors"
 	"fmt"
-	"github.com/GoAdminGroup/go-admin/modules/service"
-	"html/template"
-	"strconv"
-	"strings"
-
+	"github.com/GoAdminGroup/go-admin/modules/config"
 	"github.com/GoAdminGroup/go-admin/modules/db"
 	"github.com/GoAdminGroup/go-admin/modules/db/dialect"
+	"github.com/GoAdminGroup/go-admin/modules/language"
 	"github.com/GoAdminGroup/go-admin/modules/logger"
+	"github.com/GoAdminGroup/go-admin/modules/service"
 	"github.com/GoAdminGroup/go-admin/plugins/admin/modules"
 	"github.com/GoAdminGroup/go-admin/plugins/admin/modules/form"
 	"github.com/GoAdminGroup/go-admin/plugins/admin/modules/paginator"
 	"github.com/GoAdminGroup/go-admin/plugins/admin/modules/parameter"
 	"github.com/GoAdminGroup/go-admin/template/types"
+	form2 "github.com/GoAdminGroup/go-admin/template/types/form"
+	"html/template"
+	"strconv"
+	"strings"
+	"time"
 )
 
 type Generator func() Table
@@ -24,6 +27,24 @@ type GeneratorList map[string]Generator
 
 func (g GeneratorList) Add(key string, gen Generator) {
 	g[key] = gen
+}
+
+func (g GeneratorList) Combine(gg GeneratorList) {
+	for key, gen := range gg {
+		if _, ok := g[key]; !ok {
+			g[key] = gen
+		}
+	}
+}
+
+func (g GeneratorList) CombineAll(ggg []GeneratorList) {
+	for _, gg := range ggg {
+		for key, gen := range gg {
+			if _, ok := g[key]; !ok {
+				g[key] = gen
+			}
+		}
+	}
 }
 
 var (
@@ -57,11 +78,13 @@ func SetGenerators(gens map[string]Generator) {
 
 type Table interface {
 	GetInfo() *types.InfoPanel
+	GetDetail() *types.InfoPanel
 	GetForm() *types.FormPanel
 	GetCanAdd() bool
 	GetEditable() bool
 	GetDeletable() bool
 	GetExportable() bool
+	IsShowDetail() bool
 	GetPrimaryKey() PrimaryKey
 	GetDataFromDatabase(path string, params parameter.Parameters, isAll bool) (PanelInfo, error)
 	GetDataFromDatabaseWithIds(path string, params parameter.Parameters, ids []string) (PanelInfo, error)
@@ -69,6 +92,7 @@ type Table interface {
 	UpdateDataFromDatabase(dataList form.Values) error
 	InsertDataFromDatabase(dataList form.Values) error
 	DeleteDataFromDatabase(id string) error
+	Copy() Table
 }
 
 type PrimaryKey struct {
@@ -84,6 +108,7 @@ const (
 type DefaultTable struct {
 	info             *types.InfoPanel
 	form             *types.FormPanel
+	detail           *types.InfoPanel
 	connectionDriver string
 	connection       string
 	canAdd           bool
@@ -236,6 +261,7 @@ func NewDefaultTable(cfg Config) Table {
 	return DefaultTable{
 		info:             types.NewInfoPanel(),
 		form:             types.NewFormPanel(),
+		detail:           types.NewInfoPanel(),
 		connectionDriver: cfg.Driver,
 		connection:       cfg.Connection,
 		canAdd:           cfg.CanAdd,
@@ -246,8 +272,30 @@ func NewDefaultTable(cfg Config) Table {
 	}
 }
 
+func (tb DefaultTable) Copy() Table {
+	return DefaultTable{
+		form: types.NewFormPanel().SetTable(tb.form.Table).
+			SetDescription(tb.form.Description).
+			SetTitle(tb.form.Title),
+		info: types.NewInfoPanel().SetTable(tb.info.Table).
+			SetDescription(tb.info.Description).
+			SetTitle(tb.info.Title),
+		connectionDriver: tb.connectionDriver,
+		connection:       tb.connection,
+		canAdd:           tb.canAdd,
+		editable:         tb.editable,
+		deletable:        tb.deletable,
+		exportable:       tb.exportable,
+		primaryKey:       tb.primaryKey,
+	}
+}
+
 func (tb DefaultTable) GetInfo() *types.InfoPanel {
 	return tb.info
+}
+
+func (tb DefaultTable) GetDetail() *types.InfoPanel {
+	return tb.detail
 }
 
 func (tb DefaultTable) GetForm() *types.FormPanel {
@@ -270,6 +318,10 @@ func (tb DefaultTable) GetDeletable() bool {
 	return tb.deletable && !tb.info.IsHideDeleteButton
 }
 
+func (tb DefaultTable) IsShowDetail() bool {
+	return !tb.info.IsHideDetailButton
+}
+
 func (tb DefaultTable) GetExportable() bool {
 	return tb.exportable && !tb.info.IsHideExportButton
 }
@@ -287,23 +339,19 @@ func (tb DefaultTable) GetDataFromDatabaseWithIds(path string, params parameter.
 	return tb.getDataFromDatabase(path, params, ids)
 }
 
-func (tb DefaultTable) getTempModelData(res map[string]interface{}, resNext map[string]interface{}, params parameter.Parameters,
-	columns Columns, isLast bool) (map[string]template.HTML, bool) {
+func (tb DefaultTable) getTempModelData(res map[string]interface{}, params parameter.Parameters, columns Columns) map[string]template.HTML {
 
 	tempModelData := make(map[string]template.HTML)
 	headField := ""
 
 	primaryKeyValue := db.GetValueFromDatabaseType(tb.primaryKey.Type, res[tb.primaryKey.Name])
 
-	// check if is join query result, which
-	isCombine := !isLast && res[tb.primaryKey.Name] == resNext[tb.primaryKey.Name]
-
 	for _, field := range tb.info.FieldList {
 
 		headField = field.Field
 
 		if field.Join.Valid() {
-			headField = field.Join.Table + "_" + field.Field
+			headField = field.Join.Table + "_goadmin_join_" + field.Field
 		}
 
 		if field.Hide {
@@ -313,21 +361,13 @@ func (tb DefaultTable) getTempModelData(res map[string]interface{}, resNext map[
 			continue
 		}
 
-		var combineValue = ""
+		typeName := field.TypeName
 
-		if isCombine {
-			var (
-				resValue     = db.GetValueFromDatabaseType(field.TypeName, res[headField]).String()
-				resNextValue = db.GetValueFromDatabaseType(field.TypeName, resNext[headField]).String()
-			)
-			if resValue == resNextValue {
-				combineValue = resValue
-			} else {
-				combineValue = resValue + "|" + resNextValue
-			}
-		} else {
-			combineValue = db.GetValueFromDatabaseType(field.TypeName, res[headField]).String()
+		if field.Join.Valid() {
+			typeName = db.Varchar
 		}
+
+		var combineValue = db.GetValueFromDatabaseType(typeName, res[headField]).String()
 
 		var value interface{}
 		if inArray(columns, headField) || field.Join.Valid() {
@@ -351,7 +391,7 @@ func (tb DefaultTable) getTempModelData(res map[string]interface{}, resNext map[
 	}
 
 	tempModelData[tb.primaryKey.Name] = template.HTML(primaryKeyValue.String())
-	return tempModelData, isCombine
+	return tempModelData
 }
 
 func (tb DefaultTable) getAllDataFromDatabase(path string, params parameter.Parameters) (PanelInfo, error) {
@@ -363,7 +403,7 @@ func (tb DefaultTable) getAllDataFromDatabase(path string, params parameter.Para
 
 	columnsModel, _ := tb.sql().Table(tb.info.Table).ShowColumns()
 
-	columns := getColumns(columnsModel, tb.connectionDriver)
+	columns, _ := tb.getColumns(columnsModel)
 
 	var (
 		fields     string
@@ -423,23 +463,7 @@ func (tb DefaultTable) getAllDataFromDatabase(path string, params parameter.Para
 	infoList := make([]map[string]template.HTML, 0)
 
 	for i := 0; i < len(res); i++ {
-
-		rexNext := make(map[string]interface{})
-		if i != len(res)-1 {
-			rexNext = res[i+1]
-		}
-
-		tempModelData, isCombine := tb.getTempModelData(res[i], rexNext, params, columns, i == len(res)-1)
-
-		if isCombine {
-			if i != len(res)-2 {
-				res = append(res[:i+1], res[i+2:]...)
-			} else {
-				res = res[:i+1]
-			}
-		}
-
-		infoList = append(infoList, tempModelData)
+		infoList = append(infoList, tb.getTempModelData(res[i], params, columns))
 	}
 
 	return PanelInfo{
@@ -459,12 +483,19 @@ func (tb DefaultTable) getDataFromDatabase(path string, params parameter.Paramet
 		countStatement string
 	)
 
+	beginTime := time.Now()
+
 	if len(ids) > 0 {
-		queryStatement = "select %s from %s %s where " + tb.primaryKey.Name + " in (%s) order by " + placeholder + " %s"
-		countStatement = "select count(*) from " + placeholder + " where " + tb.primaryKey.Name + " in (%s)"
+		queryStatement = "select %s from %s %s where " + tb.primaryKey.Name + " in (%s) %s order by " + placeholder + " %s"
+		countStatement = "select count(*) from " + placeholder + " %s where " + tb.primaryKey.Name + " in (%s)"
 	} else {
-		queryStatement = "select %s from " + placeholder + "%s %s order by " + placeholder + " %s LIMIT ? OFFSET ?"
-		countStatement = "select count(*) from " + placeholder + "%s"
+		queryStatement = "select %s from " + placeholder + "%s %s %s order by " + placeholder + " %s LIMIT ? OFFSET ?"
+		countStatement = "select count(*) from " + placeholder + " %s %s"
+		if connection.Name() == "mssql" {
+			queryStatement = "SELECT * FROM (SELECT ROW_NUMBER() OVER (ORDER BY " + placeholder + " %s) as ROWNUMBER_, %s from " +
+				placeholder + "%s %s %s  ) as TMP_ WHERE TMP_.ROWNUMBER_ > ? AND TMP_.ROWNUMBER_ <= ?"
+			countStatement = "select count(*) as [size] from " + placeholder + " %s %s"
+		}
 	}
 
 	thead := make([]map[string]string, 0)
@@ -472,7 +503,7 @@ func (tb DefaultTable) getDataFromDatabase(path string, params parameter.Paramet
 
 	columnsModel, _ := tb.sql().Table(tb.info.Table).ShowColumns()
 
-	columns := getColumns(columnsModel, tb.connectionDriver)
+	columns, _ := tb.getColumns(columnsModel)
 
 	var (
 		sortable   string
@@ -482,6 +513,7 @@ func (tb DefaultTable) getDataFromDatabase(path string, params parameter.Paramet
 		headField  string
 		joinTables = make([]string, 0)
 		filterForm = make([]types.FormField, 0)
+		hasJoin    = false
 	)
 	for _, field := range tb.info.FieldList {
 		if field.Field != tb.primaryKey.Name && inArray(columns, field.Field) &&
@@ -492,8 +524,10 @@ func (tb DefaultTable) getDataFromDatabase(path string, params parameter.Paramet
 		headField = field.Field
 
 		if field.Join.Valid() {
-			headField = field.Join.Table + "_" + field.Field
-			fields += field.Join.Table + "." + filterFiled(field.Field, connection.GetDelimiter()) + " as " + headField + ","
+			hasJoin = true
+			headField = field.Join.Table + "_goadmin_join_" + field.Field
+			fields += getAggregationExpression(tb.connectionDriver, field.Join.Table+"."+
+				filterFiled(field.Field, connection.GetDelimiter()), headField, types.JoinFieldValueDelimiter) + ","
 			if !modules.InArray(joinTables, field.Join.Table) {
 				joinTables = append(joinTables, field.Join.Table)
 				joins += " left join " + filterFiled(field.Join.Table, connection.GetDelimiter()) + " on " +
@@ -507,23 +541,23 @@ func (tb DefaultTable) getDataFromDatabase(path string, params parameter.Paramet
 			var value, value2 string
 
 			if field.FilterType.IsRange() {
-				value = params.GetFieldValue(field.Field + "_start__goadmin")
-				value2 = params.GetFieldValue(field.Field + "_end__goadmin")
+				value = params.GetFieldValue(headField + "_start__goadmin")
+				value2 = params.GetFieldValue(headField + "_end__goadmin")
 			} else {
 				if field.FilterOperator == types.FilterOperatorFree {
-					value2 = params.GetFieldOperator(field.Field).String()
+					value2 = params.GetFieldOperator(headField).String()
 				}
-				value = params.GetFieldValue(field.Field)
+				value = params.GetFieldValue(headField)
 			}
 
 			filterForm = append(filterForm, types.FormField{
-				Field:     field.Field,
+				Field:     headField,
 				Head:      modules.AorB(field.FilterHead == "", field.Head, field.FilterHead),
 				TypeName:  field.TypeName,
 				HelpMsg:   field.FilterHelpMsg,
 				FormType:  field.FilterType,
 				Editable:  true,
-				Value:     value,
+				Value:     template.HTML(value),
 				Value2:    value2,
 				Options:   field.FilterOptions.SetSelected(params.GetFieldValue(field.Field), field.FilterType.SelectedLabel()),
 				OptionExt: field.FilterOptionExt,
@@ -532,10 +566,10 @@ func (tb DefaultTable) getDataFromDatabase(path string, params parameter.Paramet
 
 			if field.FilterOperator.AddOrNot() {
 				filterForm = append(filterForm, types.FormField{
-					Field:    field.Field + "__operator__",
+					Field:    headField + "__operator__",
 					Head:     field.Head,
 					TypeName: field.TypeName,
-					Value:    field.FilterOperator.Value(),
+					Value:    template.HTML(field.FilterOperator.Value()),
 					FormType: field.FilterType,
 					Hide:     true,
 				})
@@ -570,6 +604,7 @@ func (tb DefaultTable) getDataFromDatabase(path string, params parameter.Paramet
 		wheres    = ""
 		whereArgs = make([]interface{}, 0)
 		args      = make([]interface{}, 0)
+		existKeys = make([]string, 0)
 	)
 
 	if len(ids) > 0 {
@@ -580,11 +615,18 @@ func (tb DefaultTable) getDataFromDatabase(path string, params parameter.Paramet
 		}
 		wheres = wheres[:len(wheres)-1]
 	} else {
-		wheres = " where "
-		if len(params.Fields) == 0 {
+
+		if len(params.Fields) == 0 && len(tb.info.Wheres) == 0 {
 			wheres = ""
 		} else {
+
+			wheres = " where "
+
 			for key, value := range params.Fields {
+
+				if modules.InArray(existKeys, key) {
+					continue
+				}
 
 				var op types.FilterOperator
 				if strings.Contains(key, "_end__goadmin") {
@@ -604,26 +646,62 @@ func (tb DefaultTable) getDataFromDatabase(path string, params parameter.Paramet
 					} else {
 						whereArgs = append(whereArgs, value)
 					}
-				}
-
-				if field := tb.info.FieldList.GetFieldByFieldName(key); field.Exist() && field.Join.Table != "" {
-					wheres += field.Join.Table + "." + filterFiled(key, connection.GetDelimiter()) + " " + op.String() + " ? and "
-					if op == types.FilterOperatorLike && !strings.Contains(value, "%") {
-						whereArgs = append(whereArgs, "%"+value+"%")
-					} else {
-						whereArgs = append(whereArgs, value)
+				} else {
+					keys := strings.Split(key, "_goadmin_join_")
+					if len(keys) > 1 {
+						if field := tb.info.FieldList.GetFieldByFieldName(keys[1]); field.Exist() && field.Join.Table != "" {
+							wheres += field.Join.Table + "." + filterFiled(keys[1], connection.GetDelimiter()) + " " + op.String() + " ? and "
+							if op == types.FilterOperatorLike && !strings.Contains(value, "%") {
+								whereArgs = append(whereArgs, "%"+value+"%")
+							} else {
+								whereArgs = append(whereArgs, value)
+							}
+						}
 					}
 				}
+
+				existKeys = append(existKeys, key)
 			}
+
+			for _, wh := range tb.info.Wheres {
+
+				if modules.InArray(existKeys, wh.Field) {
+					continue
+				}
+
+				// TODO: support like operation and join table
+				if inArray(columns, wh.Field) {
+					wheres += filterFiled(wh.Field, connection.GetDelimiter()) + " " + wh.Operator + " ? and "
+					whereArgs = append(whereArgs, wh.Arg)
+				}
+
+				existKeys = append(existKeys, wh.Field)
+			}
+
 			if wheres != " where " {
 				wheres = wheres[:len(wheres)-4]
+			} else {
+				wheres = ""
 			}
+
 		}
-		args = append(whereArgs, params.PageSize, (modules.GetPage(params.Page)-1)*10)
+		pageSize, _ := strconv.Atoi(params.PageSize)
+		if connection.Name() == "mssql" {
+			args = append(whereArgs, (modules.GetPage(params.Page)-1)*pageSize, modules.GetPage(params.Page)*pageSize)
+		} else {
+			args = append(whereArgs, params.PageSize, (modules.GetPage(params.Page)-1)*pageSize)
+		}
 	}
 
-	queryCmd := fmt.Sprintf(queryStatement, fields, tb.info.Table, joins, wheres, params.SortField, params.SortType)
+	groupBy := ""
+	if hasJoin {
+		groupBy = " GROUP BY " + tb.info.Table + "." + filterFiled(tb.GetPrimaryKey().Name, connection.GetDelimiter())
+	}
 
+	queryCmd := fmt.Sprintf(queryStatement, fields, tb.info.Table, joins, wheres, groupBy, params.SortField, params.SortType)
+	if connection.Name() == "mssql" {
+		queryCmd = fmt.Sprintf(queryStatement, params.SortField, params.SortType, fields, tb.info.Table, joins, wheres, groupBy)
+	}
 	logger.LogSQL(queryCmd, args)
 
 	res, err := connection.QueryWithConnection(tb.connection, queryCmd, args...)
@@ -635,28 +713,16 @@ func (tb DefaultTable) getDataFromDatabase(path string, params parameter.Paramet
 	infoList := make([]map[string]template.HTML, 0)
 
 	for i := 0; i < len(res); i++ {
-
-		rexNext := make(map[string]interface{})
-		if i != len(res)-1 {
-			rexNext = res[i+1]
-		}
-
-		tempModelData, isCombine := tb.getTempModelData(res[i], rexNext, params, columns, i == len(res)-1)
-
-		if isCombine {
-			if i != len(res)-2 {
-				res = append(res[:i+1], res[i+2:]...)
-			} else {
-				res = res[:i+1]
-			}
-		}
-
-		infoList = append(infoList, tempModelData)
+		infoList = append(infoList, tb.getTempModelData(res[i], params, columns))
 	}
 
 	// TODO: use the dialect
 
-	countCmd := fmt.Sprintf(countStatement, tb.info.Table, wheres)
+	if len(ids) > 0 {
+		joins = ""
+	}
+
+	countCmd := fmt.Sprintf(countStatement, tb.info.Table, joins, wheres)
 
 	total, err := connection.QueryWithConnection(tb.connection, countCmd, whereArgs...)
 
@@ -669,14 +735,20 @@ func (tb DefaultTable) getDataFromDatabase(path string, params parameter.Paramet
 	var size int
 	if tb.connectionDriver == "postgresql" {
 		size = int(total[0]["count"].(int64))
+	} else if tb.connectionDriver == "mssql" {
+		size = int(total[0]["size"].(int64))
 	} else {
 		size = int(total[0]["count(*)"].(int64))
 	}
 
+	endTime := time.Now()
+
 	return PanelInfo{
-		Thead:       thead,
-		InfoList:    infoList,
-		Paginator:   paginator.Get(path, params, size, tb.info.GetPageSizeList()),
+		Thead:    thead,
+		InfoList: infoList,
+		Paginator: paginator.Get(path, params, size, tb.info.GetPageSizeList()).
+			SetExtraInfo(template.HTML(fmt.Sprintf("<b>" + language.Get("query time") + ": </b>" +
+				fmt.Sprintf("%.3fms", endTime.Sub(beginTime).Seconds()*1000)))),
 		Title:       tb.info.Title,
 		FormData:    filterForm,
 		Description: tb.info.Description,
@@ -694,7 +766,7 @@ func (tb DefaultTable) GetDataFromDatabaseWithId(id string) ([]types.FormField, 
 		return nil, nil, nil, "", "", err
 	}
 
-	columns := getColumns(columnsModel, tb.connectionDriver)
+	columns, _ := tb.getColumns(columnsModel)
 
 	formList := tb.form.FieldList.Copy()
 
@@ -727,6 +799,9 @@ func (tb DefaultTable) GetDataFromDatabaseWithId(id string) ([]types.FormField, 
 						rowValue := modules.AorB(inArray(columns, field.Field),
 							db.GetValueFromDatabaseType(field.TypeName, res[field.Field]).String(), "")
 						list[j] = field.UpdateValue(id, rowValue, res)
+						if list[j].FormType == form2.File && list[j].Value != template.HTML("") {
+							list[j].Value2 = "/" + config.Get().Store.Prefix + "/" + string(list[j].Value)
+						}
 						break
 					}
 				}
@@ -742,6 +817,10 @@ func (tb DefaultTable) GetDataFromDatabaseWithId(id string) ([]types.FormField, 
 		rowValue := modules.AorB(inArray(columns, field.Field),
 			db.GetValueFromDatabaseType(field.TypeName, res[field.Field]).String(), "")
 		formList[key] = field.UpdateValue(id, rowValue, res)
+
+		if formList[key].FormType == form2.File && formList[key].Value != template.HTML("") {
+			formList[key].Value2 = "/" + config.Get().Store.Prefix + "/" + string(formList[key].Value)
+		}
 	}
 
 	return formList, groupFormList, groupHeaders, tb.form.Title, tb.form.Description, nil
@@ -765,7 +844,7 @@ func (tb DefaultTable) UpdateDataFromDatabase(dataList form.Values) error {
 		Update(tb.getInjectValueFromFormValue(dataList))
 
 	// TODO: some errors should be ignored.
-	if err != nil {
+	if err != nil && !strings.Contains(err.Error(), "no affect") {
 		if tb.connectionDriver != db.DriverPostgresql {
 			return err
 		}
@@ -784,6 +863,8 @@ func (tb DefaultTable) UpdateDataFromDatabase(dataList form.Values) error {
 					logger.Error(err)
 				}
 			}()
+
+			dataList.Add("__go_admin_post_type", "0")
 
 			err := tb.form.PostHook(dataList)
 			if err != nil {
@@ -822,8 +903,6 @@ func (tb DefaultTable) InsertDataFromDatabase(dataList form.Values) error {
 
 	dataList.Add(tb.GetPrimaryKey().Name, strconv.Itoa(int(id)))
 
-	// NOTE: Database Transaction may be considered here.
-
 	if tb.form.PostHook != nil {
 		go func() {
 
@@ -832,6 +911,8 @@ func (tb DefaultTable) InsertDataFromDatabase(dataList form.Values) error {
 					logger.Error(err)
 				}
 			}()
+
+			dataList.Add("__go_admin_post_type", "1")
 
 			err := tb.form.PostHook(dataList)
 			if err != nil {
@@ -848,11 +929,30 @@ func (tb DefaultTable) getInjectValueFromFormValue(dataList form.Values) dialect
 
 	columnsModel, _ := tb.sql().Table(tb.form.Table).ShowColumns()
 
-	columns := getColumns(columnsModel, tb.connectionDriver)
+	columns, auto := tb.getColumns(columnsModel)
 	var (
 		fun          types.PostFieldFilterFn
-		exceptString = []string{tb.primaryKey.Name, "_previous_", "_method", "_t"}
+		exceptString = make([]string, 0)
 	)
+
+	if auto {
+		exceptString = []string{tb.primaryKey.Name, "_previous_", "_method", "_t"}
+	} else {
+		exceptString = []string{"_previous_", "_method", "_t"}
+	}
+
+	if !dataList.IsSingleUpdatePost() {
+		for _, field := range tb.form.FieldList {
+			if field.FormType.IsMultiSelect() {
+				if _, ok := dataList[field.Field+"[]"]; !ok {
+					dataList[field.Field+"[]"] = []string{""}
+				}
+			}
+		}
+	}
+
+	dataList = dataList.RemoveRemark()
+
 	for k, v := range dataList {
 		k = strings.Replace(k, "[]", "", -1)
 		if !modules.InArray(exceptString, k) {
@@ -1004,33 +1104,77 @@ func GetNewFormList(groupHeaders []string,
 // ***************************************
 
 func delimiter(del, s string) string {
+	if del == "[" {
+		return "[" + s + "]"
+	}
 	return del + s + del
 }
 
 func filterFiled(filed, delimiter string) string {
+	if delimiter == "[" {
+		return filed
+	}
 	return delimiter + filed + delimiter
 }
 
 type Columns []string
 
-func getColumns(columnsModel []map[string]interface{}, driver string) Columns {
+func (tb DefaultTable) getColumns(columnsModel []map[string]interface{}) (Columns, bool) {
 	columns := make(Columns, len(columnsModel))
-	switch driver {
+	switch tb.connectionDriver {
 	case "postgresql":
+		auto := false
 		for key, model := range columnsModel {
 			columns[key] = model["column_name"].(string)
+			if columns[key] == tb.primaryKey.Name {
+				if v, ok := model["column_default"].(string); ok {
+					if strings.Contains(v, "nextval") {
+						auto = true
+					}
+				}
+			}
 		}
-		return columns
+		return columns, auto
 	case "mysql":
+		auto := false
 		for key, model := range columnsModel {
 			columns[key] = model["Field"].(string)
+			if columns[key] == tb.primaryKey.Name {
+				if v, ok := model["Extra"].(string); ok {
+					if v == "auto_increment" {
+						auto = true
+					}
+				}
+			}
 		}
-		return columns
+		return columns, auto
 	case "sqlite":
 		for key, model := range columnsModel {
 			columns[key] = string(model["name"].(string))
 		}
-		return columns
+
+		num, _ := tb.sql().Table("sqlite_sequence").
+			Where("name", "=", tb.GetForm().Table).Count()
+
+		return columns, num > 0
+	case "mssql":
+		for key, model := range columnsModel {
+			columns[key] = string(model["column_name"].(string))
+		}
+		return columns, true
+	default:
+		panic("wrong driver")
+	}
+}
+
+func getAggregationExpression(driver, field, headField, delimiter string) string {
+	switch driver {
+	case "postgresql":
+		return fmt.Sprintf("string_agg(%s::character varying, '%s') as %s", field, delimiter, headField)
+	case "mysql":
+		return fmt.Sprintf("group_concat(%s separator '%s') as %s", field, delimiter, headField)
+	case "sqlite":
+		return fmt.Sprintf("group_concat(%s, '%s') as %s", field, delimiter, headField)
 	default:
 		panic("wrong driver")
 	}

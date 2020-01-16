@@ -7,7 +7,6 @@ package db
 import (
 	"database/sql"
 	"github.com/GoAdminGroup/go-admin/modules/config"
-	"sync"
 )
 
 // SQLTx is an in-progress database transaction.
@@ -15,32 +14,28 @@ type SQLTx struct {
 	Tx *sql.Tx
 }
 
-// Mysql is a Connection of mssql.
+// Mysql is a Connection of mysql.
 type Mysql struct {
-	DbList map[string]*sql.DB
-	Once   sync.Once
+	Base
 }
 
-// MysqlDB is a global variable which handles the mysql connection.
-var MysqlDB = Mysql{
-	DbList: map[string]*sql.DB{},
-}
-
-// GetMysqlDB return the global mssql connection.
+// GetMysqlDB return the global mysql connection.
 func GetMysqlDB() *Mysql {
 	return &Mysql{
-		DbList: map[string]*sql.DB{},
+		Base: Base{
+			DbList: make(map[string]*sql.DB),
+		},
 	}
-}
-
-// GetDelimiter implements the method Connection.GetDelimiter.
-func (db *Mysql) GetDelimiter() string {
-	return "`"
 }
 
 // Name implements the method Connection.Name.
 func (db *Mysql) Name() string {
 	return "mysql"
+}
+
+// GetDelimiter implements the method Connection.GetDelimiter.
+func (db *Mysql) GetDelimiter() string {
+	return "`"
 }
 
 // InitDB implements the method Connection.InitDB.

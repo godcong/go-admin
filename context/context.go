@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"math"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -145,6 +147,21 @@ func (ctx *Context) SetContentType(contentType string) {
 
 // LocalIP return the request client ip.
 func (ctx *Context) LocalIP() string {
+	xForwardedFor := ctx.Request.Header.Get("X-Forwarded-For")
+	ip := strings.TrimSpace(strings.Split(xForwardedFor, ",")[0])
+	if ip != "" {
+		return ip
+	}
+
+	ip = strings.TrimSpace(ctx.Request.Header.Get("X-Real-Ip"))
+	if ip != "" {
+		return ip
+	}
+
+	if ip, _, err := net.SplitHostPort(strings.TrimSpace(ctx.Request.RemoteAddr)); err == nil {
+		return ip
+	}
+
 	return "127.0.0.1"
 }
 
@@ -177,6 +194,12 @@ func (ctx *Context) Headers(key string) string {
 // FormValue get the value of request form key.
 func (ctx *Context) FormValue(key string) string {
 	return ctx.Request.FormValue(key)
+}
+
+// PostForm get the values of request form.
+func (ctx *Context) PostForm() url.Values {
+	_ = ctx.Request.ParseForm()
+	return ctx.Request.PostForm
 }
 
 // AddHeader adds the key, value pair to the header.

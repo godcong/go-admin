@@ -9,15 +9,11 @@ import (
 	"github.com/GoAdminGroup/go-admin/modules/config"
 	"github.com/GoAdminGroup/go-admin/modules/db"
 	"github.com/GoAdminGroup/go-admin/modules/language"
-	"github.com/GoAdminGroup/go-admin/modules/logger"
 	"github.com/GoAdminGroup/go-admin/modules/page"
 	"github.com/GoAdminGroup/go-admin/plugins/admin/models"
-	"github.com/GoAdminGroup/go-admin/plugins/admin/modules/table"
 	template2 "github.com/GoAdminGroup/go-admin/template"
 	"github.com/GoAdminGroup/go-admin/template/types"
 	"html/template"
-	"regexp"
-	"strings"
 )
 
 // Invoker contains the callback functions which are used
@@ -54,7 +50,7 @@ func DefaultInvoker(conn db.Connection) *Invoker {
 					Description: "Error",
 					Title:       "Error",
 				}, nil
-			})
+			}, conn)
 		},
 		conn: conn,
 	}
@@ -127,32 +123,7 @@ func Filter(ctx *context.Context, conn db.Connection) (models.UserModel, bool, b
 		return user, false, false
 	}
 
-	return user, true, CheckPermissions(user, getPath(ctx), ctx.Method())
-}
-
-func getPath(ctx *context.Context) string {
-
-	if strings.ToUpper(ctx.Method()) == "GET" {
-		ok, err := regexp.MatchString("/info/(.*?)/edit", ctx.Path())
-		id := ctx.Query("id")
-		if ok && err == nil && id != "" {
-			return ctx.Path() + "?id=" + id
-		}
-		return ctx.Path()
-	} else if strings.ToUpper(ctx.Method()) == "POST" {
-		ok, err := regexp.MatchString("/edit/(.*)", ctx.Path())
-		if ok && err == nil {
-			pk := table.Get(ctx.Query("__prefix")).GetPrimaryKey().Name
-			id := ctx.FormValue(pk)
-			if id != "" {
-				return ctx.Path() + "?" + pk + "=" + id
-			}
-			return ctx.Path()
-		}
-		return ctx.Path()
-	}
-
-	return ctx.Path()
+	return user, true, CheckPermissions(user, ctx.Request.URL.String(), ctx.Method())
 }
 
 const defaultUserIDSesKey = "user_id"
@@ -206,60 +177,6 @@ func GetCurUserByID(id int64, conn db.Connection) (user models.UserModel, ok boo
 }
 
 // CheckPermissions check the permission of the user.
-func CheckPermissions(user models.UserModel, path string, method string) bool {
-
-	if path == config.Get().Url("/logout") {
-		return true
-	}
-
-	if path != "/" && path[len(path)-1] == '/' {
-		path = path[:len(path)-1]
-	}
-
-	hasQmark := strings.Contains(path, "?id=")
-
-	for _, v := range user.Permissions {
-
-		if v.HttpMethod[0] == "" || inMethodArr(v.HttpMethod, method) {
-
-			if v.HttpPath[0] == "*" {
-				return true
-			}
-
-			for i := 0; i < len(v.HttpPath); i++ {
-
-				matchPath := config.Get().Url(strings.TrimSpace(v.HttpPath[i]))
-
-				if hasQmark && !strings.Contains(matchPath, "?") {
-					matchPath += "?(.*)"
-				}
-
-				if matchPath == path {
-					return true
-				}
-
-				reg, err := regexp.Compile(matchPath)
-
-				if err != nil {
-					logger.Error("CheckPermissions error: ", err)
-					continue
-				}
-
-				if reg.FindString(path) == path {
-					return true
-				}
-			}
-		}
-	}
-
-	return false
-}
-
-func inMethodArr(arr []string, str string) bool {
-	for i := 0; i < len(arr); i++ {
-		if strings.EqualFold(arr[i], str) {
-			return true
-		}
-	}
-	return false
+func CheckPermissions(user models.UserModel, path, method string) bool {
+	return user.CheckPermissionByUrlMethod(path, method)
 }
